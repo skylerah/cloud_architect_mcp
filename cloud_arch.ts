@@ -40,263 +40,22 @@ interface ArchitectureInquiryData {
   architectureTier?: 'infrastructure' | 'platform' | 'application' | 'data' | 'security' | 'operations';
 }
 
-class AzureArchitectureAdvisor {
-  private questionHistory: ArchitectureInquiryData[] = [];
-  private followUpQuestions: Record<number, ArchitectureInquiryData[]> = {};
-
-  private validateInquiryData(input: unknown): ArchitectureInquiryData {
-    const data = input as Record<string, unknown>;
-
-    if (!data.question || typeof data.question !== 'string') {
-      throw new Error('Invalid question: must be a string');
-    }
-    if (!data.questionNumber || typeof data.questionNumber !== 'number') {
-      throw new Error('Invalid questionNumber: must be a number');
-    }
-    if (!data.totalQuestions || typeof data.totalQuestions !== 'number') {
-      throw new Error('Invalid totalQuestions: must be a number');
-    }
-    if (typeof data.nextQuestionNeeded !== 'boolean') {
-      throw new Error('Invalid nextQuestionNeeded: must be a boolean');
-    }
-
-    return {
-      question: data.question as string,
-      questionNumber: data.questionNumber as number,
-      totalQuestions: data.totalQuestions as number,
-      nextQuestionNeeded: data.nextQuestionNeeded as boolean,
-      answer: data.answer as string | undefined,
-      requirementCategory: data.requirementCategory as string | undefined,
-      isFollowUp: data.isFollowUp as boolean | undefined,
-      followsQuestionNumber: data.followsQuestionNumber as number | undefined,
-      architectureSuggested: data.architectureSuggested as boolean | undefined,
-      architectureComponent: data.architectureComponent as string | undefined,
-      detailLevel: data.detailLevel as 'high' | 'medium' | 'low' | undefined,
-      domainSpecific: data.domainSpecific as boolean | undefined,
-      requirementIdentified: data.requirementIdentified as string | undefined,
-      technicalConstraint: data.technicalConstraint as string | undefined,
-      designPatternSuggested: data.designPatternSuggested as string | undefined,
-      serviceDetails: data.serviceDetails as {
-        name: string;
-        purpose: string;
-        configuration?: string;
-        alternatives?: string[];
-      } | undefined,
-      architectureTier: data.architectureTier as 'infrastructure' | 'platform' | 'application' | 'data' | 'security' | 'operations' | undefined,
-    };
-  }
-
-  private formatInquiry(inquiryData: ArchitectureInquiryData): string {
-    const { 
-      questionNumber, 
-      totalQuestions, 
-      question, 
-      answer, 
-      requirementCategory, 
-      isFollowUp, 
-      followsQuestionNumber,
-      architectureSuggested,
-      architectureComponent,
-      detailLevel,
-      requirementIdentified,
-      technicalConstraint,
-      designPatternSuggested,
-      serviceDetails,
-      architectureTier
-    } = inquiryData;
-
-    let prefix = '';
-    let context = '';
-    let additionalInfo: string[] = [];
-
-    if (isFollowUp) {
-      prefix = chalk.yellow('🔍 Follow-up');
-      context = ` (follows question ${followsQuestionNumber})`;
-    } else if (architectureSuggested) {
-      prefix = chalk.green('🏗️ Architecture');
-      const tierInfo = architectureTier ? ` in ${architectureTier} tier` : '';
-      context = ` (suggesting component: ${architectureComponent}${tierInfo})`;
-    } else {
-      prefix = chalk.blue('❓ Question');
-      context = requirementCategory ? ` (${requirementCategory})` : '';
-    }
-
-    if (detailLevel) {
-      additionalInfo.push(chalk.cyan(`Detail level: ${detailLevel.toUpperCase()}`));
-    }
-
-    if (requirementIdentified) {
-      additionalInfo.push(chalk.green(`Requirement: ${requirementIdentified}`));
-    }
-
-    if (technicalConstraint) {
-      additionalInfo.push(chalk.red(`Constraint: ${technicalConstraint}`));
-    }
-
-    if (designPatternSuggested) {
-      additionalInfo.push(chalk.magenta(`Design pattern: ${designPatternSuggested}`));
-    }
-
-    if (serviceDetails) {
-      additionalInfo.push(chalk.blue(`Service: ${serviceDetails.name}`));
-      additionalInfo.push(chalk.blue(`Purpose: ${serviceDetails.purpose}`));
-      
-      if (serviceDetails.configuration) {
-        additionalInfo.push(chalk.blue(`Configuration: ${serviceDetails.configuration}`));
-      }
-      
-      if (serviceDetails.alternatives && serviceDetails.alternatives.length > 0) {
-        additionalInfo.push(chalk.blue(`Alternatives: ${serviceDetails.alternatives.join(', ')}`));
-      }
-    }
-
-    const header = `${prefix} ${questionNumber}/${totalQuestions}${context}`;
-    const questionText = `Q: ${question}`;
-    const answerText = answer ? `A: ${answer}` : '(Awaiting user response)';
-    
-    // Find the longest line among all the content
-    const allLines = [
-      header, 
-      questionText, 
-      answerText,
-      ...additionalInfo
-    ];
-    const longestLine = Math.max(...allLines.map(line => line.length));
-    const border = '─'.repeat(longestLine + 4);
-
-    let output = `
-┌${border}┐
-│ ${header.padEnd(longestLine)} │
-├${border}┤
-│ ${questionText.padEnd(longestLine)} │`;
-
-    if (answer) {
-      output += `\n│ ${answerText.padEnd(longestLine)} │`;
-    }
-
-    if (additionalInfo.length > 0) {
-      output += `\n├${border}┤`;
-      additionalInfo.forEach(info => {
-        output += `\n│ ${info.padEnd(longestLine)} │`;
-      });
-    }
-
-    output += `\n└${border}┘`;
-    return output;
-  }
-
-  private architectureComponents: Set<string> = new Set();
-  private identifiedRequirements: Set<string> = new Set();
-  private technicalConstraints: Set<string> = new Set();
-  private designPatterns: Set<string> = new Set();
-  private serviceTiers: Record<string, Set<string>> = {
-    'infrastructure': new Set(),
-    'platform': new Set(), 
-    'application': new Set(),
-    'data': new Set(),
-    'security': new Set(),
-    'operations': new Set()
+interface ArchitectureState {
+  questionHistory: ArchitectureInquiryData[];
+  followUpQuestions: Record<string, ArchitectureInquiryData[]>;
+  architectureComponents: string[];
+  identifiedRequirements: string[];
+  technicalConstraints: string[];
+  designPatterns: string[];
+  serviceTiers: Record<string, string[]>;
+  calculatedMetrics?: {
+    emptyTiers: string[];
+    completenessPercentage: number;
+    tierComponentCounts: Record<string, number>;
   };
-
-  public processInquiry(input: unknown): { content: Array<{ type: string; text: string }>; isError?: boolean } {
-    try {
-      const validatedInput = this.validateInquiryData(input);
-
-      if (validatedInput.questionNumber > validatedInput.totalQuestions) {
-        validatedInput.totalQuestions = validatedInput.questionNumber;
-      }
-
-      // Track architecture components and requirements
-      if (validatedInput.architectureComponent) {
-        this.architectureComponents.add(validatedInput.architectureComponent);
-      }
-      
-      if (validatedInput.requirementIdentified) {
-        this.identifiedRequirements.add(validatedInput.requirementIdentified);
-      }
-      
-      if (validatedInput.technicalConstraint) {
-        this.technicalConstraints.add(validatedInput.technicalConstraint);
-      }
-      
-      if (validatedInput.designPatternSuggested) {
-        this.designPatterns.add(validatedInput.designPatternSuggested);
-      }
-      
-      if (validatedInput.architectureTier && validatedInput.architectureComponent) {
-        this.serviceTiers[validatedInput.architectureTier].add(validatedInput.architectureComponent);
-      }
-
-      this.questionHistory.push(validatedInput);
-
-      if (validatedInput.isFollowUp && validatedInput.followsQuestionNumber) {
-        if (!this.followUpQuestions[validatedInput.followsQuestionNumber]) {
-          this.followUpQuestions[validatedInput.followsQuestionNumber] = [];
-        }
-        this.followUpQuestions[validatedInput.followsQuestionNumber].push(validatedInput);
-      }
-
-      const formattedInquiry = this.formatInquiry(validatedInput);
-      console.error(formattedInquiry);
-
-      // Calculate architecture completeness
-      const tierCompleteness = Object.entries(this.serviceTiers).map(([tier, components]) => {
-        return {
-          tier,
-          componentCount: components.size,
-          hasComponents: components.size > 0
-        };
-      });
-      
-      const emptyTiers = tierCompleteness.filter(t => !t.hasComponents).map(t => t.tier);
-      const architectureCompletenessPct = 
-        (tierCompleteness.filter(t => t.hasComponents).length / Object.keys(this.serviceTiers).length) * 100;
-
-      // Create a clean question text for the LLM to display directly
-      let displayText = validatedInput.question;
-      
-      // Only add prefix for follow-up questions to make the transition smoother
-      if (validatedInput.isFollowUp) {
-        displayText = displayText.trim();
-      }
-
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            display_text: displayText,
-            questionNumber: validatedInput.questionNumber,
-            totalQuestions: validatedInput.totalQuestions,
-            nextQuestionNeeded: validatedInput.nextQuestionNeeded,
-            followUpQuestions: Object.keys(this.followUpQuestions).map(Number),
-            questionHistoryLength: this.questionHistory.length,
-            architectureStatus: {
-              componentsCount: this.architectureComponents.size,
-              requirementsCount: this.identifiedRequirements.size,
-              constraintsCount: this.technicalConstraints.size,
-              designPatternsCount: this.designPatterns.size,
-              completenessPercentage: Math.round(architectureCompletenessPct),
-              emptyTiers: emptyTiers,
-              tierComponentCounts: Object.fromEntries(
-                Object.entries(this.serviceTiers).map(([tier, components]) => [tier, components.size])
-              )
-            }
-          }, null, 2)
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            error: error instanceof Error ? error.message : String(error),
-            status: 'failed'
-          }, null, 2)
-        }],
-        isError: true
-      };
-    }
-  }
+  display?: {
+    displayText: string;
+  };
 }
 
 const AZURE_ARCHITECTURE_TOOL: Tool = {
@@ -341,6 +100,68 @@ Parameters explained:
 - designPatternSuggested: Architectural pattern being recommended
 - serviceDetails: Detailed information about a specific Azure service
 - architectureTier: Which architectural tier this component belongs to
+- state: Complete architecture state to maintain statelessness on the server
+
+100% CLIENT-MANAGED SYSTEM:
+- The entire architecture state is managed by YOU (the client AI)
+- The server performs NO calculations, modifications, or processing of your data
+- YOU are responsible for all state updates, calculations, and text formatting
+- YOU must track all components, requirements, constraints, etc.
+- YOU must calculate all metrics (completeness, empty tiers, component counts, etc.)
+- YOU must format any text for display
+
+Required state structure:
+{
+  "questionHistory": [], // Array of all previous questions and answers
+  "followUpQuestions": {}, // Object with question numbers as keys and arrays of follow-up questions as values
+  "architectureComponents": [], // Array of all Azure components suggested
+  "identifiedRequirements": [], // Array of all requirements identified
+  "technicalConstraints": [], // Array of all constraints identified
+  "designPatterns": [], // Array of all design patterns suggested
+  "serviceTiers": { // Object with arrays of components for each tier
+    "infrastructure": [],
+    "platform": [],
+    "application": [],
+    "data": [],
+    "security": [],
+    "operations": []
+  },
+  "calculatedMetrics": { // All metrics must be calculated by YOU
+    "emptyTiers": [], // Array of tier names that have no components
+    "completenessPercentage": 0, // Percentage of tiers that have at least one component
+    "tierComponentCounts": {} // Object with the count of components for each tier
+  },
+  "display": { // Display formatting must be done by YOU
+    "displayText": "" // The formatted question text for display
+  }
+}
+
+IMPORTANT: You must initialize this state structure on the first call and maintain it across calls.
+For the first call, create an empty structure following the format above.
+For subsequent calls, use the state returned from the previous call and UPDATE IT based on the current input.
+
+State update rules:
+1. If the current input has architectureComponent, add it to state.architectureComponents (if not already there)
+2. If the current input has requirementIdentified, add it to state.identifiedRequirements (if not already there)
+3. If the current input has technicalConstraint, add it to state.technicalConstraints (if not already there)
+4. If the current input has designPatternSuggested, add it to state.designPatterns (if not already there)
+5. If the current input has architectureTier and architectureComponent, add the component to state.serviceTiers[architectureTier]
+6. Always add the current input to state.questionHistory
+7. If the current input is a follow-up question (isFollowUp=true), add it to state.followUpQuestions[followsQuestionNumber]
+8. If questionNumber > totalQuestions, update totalQuestions to equal questionNumber in your response
+
+Metric calculation rules (YOU MUST perform these calculations):
+1. For each tier, count the number of components and store in state.calculatedMetrics.tierComponentCounts
+2. Check which tiers have zero components and add them to state.calculatedMetrics.emptyTiers
+3. Calculate completeness percentage: (number of non-empty tiers / total number of tiers) * 100
+4. Round the completeness percentage to a whole number
+5. Set state.display.displayText to the current question. If it's a follow-up question, trim any leading/trailing whitespace
+
+Processing logic:
+- Track architecture components and requirements in appropriate categories
+- Maintain question history and follow-up questions
+- Calculate architecture completeness across all tiers
+- Return formatted response with status and metrics
 
 You should:
 1. Start with high-level questions about business goals and requirements
@@ -453,9 +274,95 @@ You should:
         type: "string",
         enum: ["infrastructure", "platform", "application", "data", "security", "operations"],
         description: "Which architectural tier this component belongs to"
+      },
+      state: {
+        type: "object",
+        description: "The complete architecture state from the previous request",
+        properties: {
+          questionHistory: {
+            type: "array",
+            description: "Complete history of all questions asked",
+            items: {
+              type: "object"
+            }
+          },
+          followUpQuestions: {
+            type: "object",
+            description: "Record of all follow-up questions by question number"
+          },
+          architectureComponents: {
+            type: "array",
+            description: "All architecture components suggested so far",
+            items: {
+              type: "string"
+            }
+          },
+          identifiedRequirements: {
+            type: "array",
+            description: "All requirements identified so far",
+            items: {
+              type: "string"
+            }
+          },
+          technicalConstraints: {
+            type: "array",
+            description: "All technical constraints identified so far",
+            items: {
+              type: "string"
+            }
+          },
+          designPatterns: {
+            type: "array",
+            description: "All design patterns suggested so far",
+            items: {
+              type: "string"
+            }
+          },
+          serviceTiers: {
+            type: "object",
+            description: "Components organized by architecture tier",
+            additionalProperties: {
+              type: "array",
+              items: {
+                type: "string"
+              }
+            }
+          },
+          calculatedMetrics: {
+            type: "object",
+            description: "Calculated metrics for the architecture",
+            properties: {
+              emptyTiers: {
+                type: "array",
+                description: "Tiers with no components",
+                items: {
+                  type: "string"
+                }
+              },
+              completenessPercentage: {
+                type: "number",
+                description: "Percentage of architecture completeness"
+              },
+              tierComponentCounts: {
+                type: "object",
+                description: "Count of components per tier"
+              }
+            }
+          },
+          display: {
+            type: "object",
+            description: "Display formatting for the architecture",
+            properties: {
+              displayText: {
+                type: "string",
+                description: "Formatted text for display"
+              }
+            }
+          }
+        }
       }
     },
-    required: ["question", "questionNumber", "totalQuestions", "nextQuestionNeeded"]
+    required: ["question", "questionNumber", "totalQuestions", "nextQuestionNeeded", "state"]
   }
 };
 
@@ -471,15 +378,79 @@ const server = new Server(
   }
 );
 
-const architectureAdvisor = new AzureArchitectureAdvisor();
-
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [AZURE_ARCHITECTURE_TOOL],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "design_azure_architecture") {
-    return architectureAdvisor.processInquiry(request.params.arguments);
+    try {
+      const data = request.params.arguments as Record<string, unknown>;
+      
+      const input = {
+        question: data.question as string,
+        questionNumber: data.questionNumber as number,
+        totalQuestions: data.totalQuestions as number,
+        nextQuestionNeeded: data.nextQuestionNeeded as boolean,
+        answer: data.answer as string | undefined,
+        requirementCategory: data.requirementCategory as string | undefined,
+        isFollowUp: data.isFollowUp as boolean | undefined,
+        followsQuestionNumber: data.followsQuestionNumber as number | undefined,
+        architectureSuggested: data.architectureSuggested as boolean | undefined,
+        architectureComponent: data.architectureComponent as string | undefined,
+        detailLevel: data.detailLevel as 'high' | 'medium' | 'low' | undefined,
+        domainSpecific: data.domainSpecific as boolean | undefined,
+        requirementIdentified: data.requirementIdentified as string | undefined,
+        technicalConstraint: data.technicalConstraint as string | undefined,
+        designPatternSuggested: data.designPatternSuggested as string | undefined,
+        serviceDetails: data.serviceDetails as {
+          name: string;
+          purpose: string;
+          configuration?: string;
+          alternatives?: string[];
+        } | undefined,
+        architectureTier: data.architectureTier as 'infrastructure' | 'platform' | 'application' | 'data' | 'security' | 'operations' | undefined,
+      };
+
+      // Get state from client - all management and calculations are done by the client
+      const state = data.state as ArchitectureState;
+
+      // Simply pass through the client's input and state with minimal processing
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            display_text: state.display?.displayText || input.question,
+            questionNumber: input.questionNumber,
+            totalQuestions: input.totalQuestions,
+            nextQuestionNeeded: input.nextQuestionNeeded,
+            followUpQuestions: Object.keys(state.followUpQuestions),
+            questionHistoryLength: state.questionHistory.length,
+            architectureStatus: {
+              componentsCount: state.architectureComponents.length,
+              requirementsCount: state.identifiedRequirements.length,
+              constraintsCount: state.technicalConstraints.length,
+              designPatternsCount: state.designPatterns.length,
+              completenessPercentage: state.calculatedMetrics?.completenessPercentage || 0,
+              emptyTiers: state.calculatedMetrics?.emptyTiers || [],
+              tierComponentCounts: state.calculatedMetrics?.tierComponentCounts || {}
+            },
+            state: state // Pass the state back to client unchanged
+          }, null, 2)
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: error instanceof Error ? error.message : String(error),
+            status: 'failed'
+          }, null, 2)
+        }],
+        isError: true
+      };
+    }
   }
 
   return {
