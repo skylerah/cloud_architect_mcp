@@ -50,7 +50,7 @@ Basic state structure:
 {
   "questionHistory": [],
   "architectureComponents": [],
-  "serviceTiers": {
+  "architectureTiers": {
     "infrastructure": [],
     "platform": [],
     "application": [],
@@ -63,12 +63,13 @@ Basic state structure:
 You should:
 1. First start with understanding who the user is (role, motivations, company size, etc.) and what they do
 2. Learn about their business goals and requirements
-3. Ask follow-up questions to clarify technical needs
-4. Identify specific requirements and technical constraints from user responses
-5. Suggest appropriate Azure components for each tier
-6. Ensure you cover all architecture tiers
-7. Follow Azure Well-Architected Framework principles (reliability, security, cost, operational excellence, performance efficiency)
-6. Keep track of components you've suggested using the state object`,
+3. Ask 1 to 2 questions at a time, in order to not overload the user.
+4. Ask follow-up questions to clarify technical needs
+5. Identify specific requirements and technical constraints from user responses
+6. Suggest appropriate Azure components for each tier
+7. Ensure you cover all architecture tiers
+8. Follow Azure Well-Architected Framework principles (reliability, security, cost, operational excellence, performance efficiency)
+9. Keep track of components you've suggested using the state object`,
   inputSchema: {
     type: "object",
     properties: {
