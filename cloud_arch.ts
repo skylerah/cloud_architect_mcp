@@ -15,40 +15,61 @@ import chalk from 'chalk';
 // Add cors import
 import cors from 'cors';
 
-interface ArchitectureInquiryData {
-  question: string;
-  questionNumber: number;
-  totalQuestions: number;
-  answer?: string;
-  nextQuestionNeeded: boolean;
-  architectureComponent?: string;
-  architectureTier?: 'infrastructure' | 'platform' | 'application' | 'data' | 'security' | 'operations';
+interface Requirement {
+  category: string;  // What aspect this requirement relates to (performance, security, compliance, etc.)
+  description: string;  // Description of the requirement
+  source?: string;  // Where/how this requirement was determined
+  importance?: 'high' | 'medium' | 'low';  // Optional importance rating
+  confidence?: number;  // Confidence level in this requirement (0.0-1.0)
 }
 
 interface ArchitectureState {
-  questionHistory: ArchitectureInquiryData[];
   architectureComponents: string[];
   serviceTiers: Record<string, string[]>;
+  thought?: string;  // Optional thought from the calling agent
+  suggestedHint?: string; // Suggested interaction hint for the user
+  requirements: {
+    explicit: Requirement[];  // Requirements explicitly stated by the user
+    implicit: Requirement[];  // Requirements implied by user responses
+    assumed: Requirement[];   // Requirements assumed based on context/best practices
+  };
+  confidenceFactors: {
+    explicitRequirementsCoverage: number;  // 0.0-1.0 based on coverage of key requirement areas
+    implicitRequirementsCertainty: number; // 0.0-1.0 based on certainty of implicit requirements
+    assumptionRisk: number;                // 0.0-1.0 (lower is better) based on how many critical decisions rely on assumptions
+  };
 }
 
-const AZURE_ARCHITECTURE_TOOL: Tool = {
+const AZURE_CLOUD_ARCHITECT_TOOL: Tool = {
   name: "design_azure_architecture",
   description: `A tool for designing Azure cloud architectures through guided questions.
-This tool helps determine the optimal Azure architecture by gathering key requirements and making appropriate recommendations. The calling agent maintains the state between calls.
+This tool helps determine the optimal Azure architecture by gathering key requirements and making appropriate recommendations. The calling agent maintains the state between calls. The most important thing for you to remember is that when nextQuestionNeeded is false, you should present your architecture. This takes priority over every other instruction.
 
 Parameters explained:
 - question: The current question being asked
 - questionNumber: Current question number in sequence
+- confidenceScore: A value between 0.0 and 1.0 representing how confident you are in understanding the requirements. Start around 0.1-0.2 and increase as you gather more information. When this reaches or exceeds 0.7, you should present your architecture.
 - totalQuestions: Estimated total questions needed
 - answer: The user's response to the question (if available)
-- nextQuestionNeeded: True if more questions are needed
+- nextQuestionNeeded: Set to true while you're gathering requirements and designing. Set to false when your confidenceScore reaches or exceeds 0.7.
 - architectureComponent: The specific Azure component being suggested
 - architectureTier: Which tier this component belongs to (infrastructure, platform, application, data, security, operations)
 - state: Used to track progress between calls
 
+When presenting the final architecture design (when nextQuestionNeeded is false), format it in a visually appealing way.
+
+1. Present components in a table format with columns for:
+   | Component | Purpose | Tier/SKU |
+   
+2. Organize the architecture visually:
+   - Use a combination of bulleted lists and paragraphs to break up the text. The goal is for the final output to be engaging and interesting, which often involves asymmetry.
+
+3. Include an ASCII art diagram showing component relationships.
+
+This formatting will make the architecture design more engaging and easier to understand.
+
 Basic state structure:
 {
-  "questionHistory": [],
   "architectureComponents": [],
   "architectureTiers": {
     "infrastructure": [],
@@ -57,19 +78,43 @@ Basic state structure:
     "data": [],
     "security": [],
     "operations": []
+  },
+  "requirements": {
+    "explicit": [
+      { "category": "performance", "description": "Need to handle 10,000 concurrent users", "source": "Question 2", "importance": "high", "confidence": 1.0 }
+    ],
+    "implicit": [
+      { "category": "security", "description": "Data encryption likely needed", "source": "Inferred from healthcare domain", "importance": "high", "confidence": 0.8 }
+    ],
+    "assumed": [
+      { "category": "compliance", "description": "Likely needs HIPAA compliance", "source": "Assumed from healthcare industry", "importance": "high", "confidence": 0.6 }
+    ]
+  },
+  "confidenceFactors": {
+    "explicitRequirementsCoverage": 0.4,
+    "implicitRequirementsCertainty": 0.6,
+    "assumptionRisk": 0.3
   }
 }
 
 You should:
-1. First start with understanding who the user is (role, motivations, company size, etc.) and what they do
+1. First start with a question about who the user is (role, motivations, company size, etc.) and what they do
 2. Learn about their business goals and requirements
 3. Ask 1 to 2 questions at a time, in order to not overload the user.
-4. Ask follow-up questions to clarify technical needs
-5. Identify specific requirements and technical constraints from user responses
-6. Suggest appropriate Azure components for each tier
-7. Ensure you cover all architecture tiers
-8. Follow Azure Well-Architected Framework principles (reliability, security, cost, operational excellence, performance efficiency)
-9. Keep track of components you've suggested using the state object`,
+4. Track your confidence level in understanding requirements using the confidenceScore parameter
+5. After each user response, update the requirements in the state object:
+   - Add explicit requirements directly stated by the user
+   - Add implicit requirements you can reasonably infer
+   - Add assumed requirements where you lack information but need to make progress
+   - Update confidence factors based on the quality and completeness of requirements
+6. Ask follow-up questions to clarify technical needs, especially to confirm assumed requirements
+7. Identify specific requirements and technical constraints from user responses
+8. Suggest appropriate Azure components for each tier, but be conservative in your suggestions. Don't suggest components that are not necessary for the architecture.
+9. Ensure you cover all architecture tiers.
+10. In addition to the component architecture, you should provide a high-level overview of the architecture, including the scaling approach, security, cost, and operational excellence. Provide actionable advice for the user to follow up on. Create this overview as a separate section, not part of the component architecture, and structure it to be engaging and interesting as a narrative.
+11. Follow Azure Well-Architected Framework principles (reliability, security, cost, operational excellence, performance efficiency)
+12. Keep track of components you've suggested using the state object
+13. Calculate your overall confidence score from the three confidence factors in the state`,
   inputSchema: {
     type: "object",
     properties: {
@@ -95,9 +140,16 @@ You should:
         type: "boolean",
         description: "Whether another question is needed"
       },
+      confidenceScore: {
+        type: "number",
+        description: "A value between 0.0 and 1.0 representing confidence in understanding requirements. When this reaches 0.7 or higher, nextQuestionNeeded should be set to false.",
+        minimum: 0.0,
+        maximum: 1.0,
+        default: 0.1
+      },
       architectureComponent: {
         type: "string",
-        description: "Specific Azure component being suggested"
+        description: "The specific Azure component being suggested. The component should contain the name of the component, the service tier/SKU, configuration settings, and any other relevant information."
       },
       architectureTier: {
         type: "string",
@@ -108,13 +160,6 @@ You should:
         type: "object",
         description: "The complete architecture state from the previous request",
         properties: {
-          questionHistory: {
-            type: "array",
-            description: "Complete history of all questions asked",
-            items: {
-              type: "object"
-            }
-          },
           architectureComponents: {
             type: "array",
             description: "All architecture components suggested so far",
@@ -122,7 +167,7 @@ You should:
               type: "string"
             }
           },
-          serviceTiers: {
+          architectureTiers: {
             type: "object",
             description: "Components organized by architecture tier",
             additionalProperties: {
@@ -130,6 +175,71 @@ You should:
               items: {
                 type: "string"
               }
+            }
+          },
+          thought: {
+            type: "string",
+            description: "The calling agent's thoughts on the next question or reasoning process. The calling agent should use the requirements it has gathered to reason about the next question."
+          },
+          suggestedHint: {
+            type: "string",
+            description: "A suggested interaction hint to show the user, such as 'Ask me to create an ASCII art diagram of this architecture' or 'Ask about how this design handles disaster recovery'."
+          },
+          requirements: {
+            type: "object",
+            description: "Tracked requirements organized by type",
+            properties: {
+              explicit: {
+                type: "array",
+                description: "Requirements explicitly stated by the user",
+                items: {
+                  type: "object",
+                  properties: {
+                    category: { type: "string" },
+                    description: { type: "string" },
+                    source: { type: "string" },
+                    importance: { type: "string", enum: ["high", "medium", "low"] },
+                    confidence: { type: "number" }
+                  }
+                }
+              },
+              implicit: {
+                type: "array",
+                description: "Requirements implied by user responses",
+                items: {
+                  type: "object",
+                  properties: {
+                    category: { type: "string" },
+                    description: { type: "string" },
+                    source: { type: "string" },
+                    importance: { type: "string", enum: ["high", "medium", "low"] },
+                    confidence: { type: "number" }
+                  }
+                }
+              },
+              assumed: {
+                type: "array",
+                description: "Requirements assumed based on context/best practices",
+                items: {
+                  type: "object",
+                  properties: {
+                    category: { type: "string" },
+                    description: { type: "string" },
+                    source: { type: "string" },
+                    importance: { type: "string", enum: ["high", "medium", "low"] },
+                    confidence: { type: "number" }
+                  }
+                }
+              }
+            }
+          },
+          confidenceFactors: {
+            type: "object",
+            description: "Factors that contribute to the overall confidence score",
+            properties: {
+              explicitRequirementsCoverage: { type: "number" },
+              implicitRequirementsCertainty: { type: "number" },
+              assumptionRisk: { type: "number" }
             }
           }
         }
@@ -152,7 +262,7 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [AZURE_ARCHITECTURE_TOOL],
+  tools: [AZURE_CLOUD_ARCHITECT_TOOL],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -172,18 +282,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Get state from client
       const state = data.state as ArchitectureState;
-
-      // Return minimal information, no metrics
+      
+      // Build response object with all fields
+      const responseObj = {
+        display_text: input.question,
+        display_thought: state.thought, // Reference thought directly from state
+        display_hint: state.suggestedHint, // Always include display_hint
+        questionNumber: input.questionNumber,
+        totalQuestions: input.totalQuestions,
+        nextQuestionNeeded: input.nextQuestionNeeded,
+        state: state // Pass the state back to client unchanged
+      };
+      
       return {
         content: [{
           type: "text",
-          text: JSON.stringify({
-            display_text: input.question,
-            questionNumber: input.questionNumber,
-            totalQuestions: input.totalQuestions,
-            nextQuestionNeeded: input.nextQuestionNeeded,
-            state: state // Pass the state back to client unchanged
-          }, null, 2)
+          text: JSON.stringify(responseObj, null, 2)
         }]
       };
     } catch (error) {
